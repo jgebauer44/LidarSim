@@ -1,0 +1,64 @@
+LidarSim v0.0.1
+
+#####################################################
+# THIS LIDAR SIMULATOR IS STILL IN BETA. I CANNOT
+# PROMISE THAT THE SIMULATOR IS COMPLETELY FREE
+# OF BUGS.
+####################################################
+
+#######################
+# LidarSim Dependencies
+#######################
+
+os
+shutil
+sys
+numpy
+glob
+pyproj
+scipy
+time
+struct
+xarray
+netCDF4
+argparse
+datetime
+
+#########################
+# Description of LidarSim
+#########################
+
+LidarSim uses output from mesoscale and LES models to create simulated lidar observationsfrom model output data. The simulator is capable of running it two mode. The first mode is "instantaneous scan" mode where all designated scans are performed completely at every model output time. The second mode is "realistic scan" where the time-dependency of each radial is accounted for.
+
+The scanning strategies for LidarSim are set in a similar manner to the Halo lidars. The user can specifiy 4 scan files consiting of azimuth elevation pairs. These scans can be run continuously (i.e. "cc'ed) or a repeat time for each scan can be specified. In between each scan file vertical stares are performed. When running in "realistic scan" mode a scan_schedule.txt file is created that describes the timing of every scan that will beperformed.
+
+The speed of the lidar motors, pulse length, gate lenth and nyquist velocity can all be specified to match thespecifications of the lidars that you want simulated. Currently, LidarSim assumes a gaussian pulse for the range weighting of the velocities.
+
+For WRF files, LidarSim can account for precipition and clouds and the simulated beam will be extinguished if clouds or rain is present. LidarSim currently does not account for pulse power or reciever sensitivity to limit the range of the observations. Users should use realistic maximum ranges for the lidars that they are simulating.
+
+############
+# How to run
+############
+
+1. Create scan files
+
+Example formatting for DBS scan
+000.000 060.000
+090.000 060.000
+180.000 060.000
+270.000 060.000
+
+2. Change namelist.input file to your specifications
+
+3. Run LidarSim
+
+python LidarSim.py <path_to_namelist_file> --output_dir <path_to_output_dir>
+
+Example
+python LidarSim.py /Users/jgebauer/namelist.input --output_dir /Users/jgebauer/LidarSim_files
+
+#####################
+# Contact Information
+#####################
+
+Please direct any questions or bug-fixes to Josh Gebauer at jgebauer@ucar.edu
