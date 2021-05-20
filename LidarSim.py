@@ -1,11 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Mon Dec 14 12:17:33 2020
-
-@author: jgebauer
-"""
-
 import os
 import shutil
 import sys
@@ -598,6 +590,9 @@ def get_fasteddy_data(x,y,z,lidarx,lidary,lidarz,file):
     
     w = w[:izmax+1,iymin:iymax+1,ixmin:ixmax+1].T
     
+    ground = f['topoPos'].values[0]
+    ground = ground[iymin:iymax+1,ixmin:ixmax+1].T
+    
     zzz = zz[ixmin:ixmax+1,iymin:iymax+1,:izmax+1]
     
     qi = (x,y)
@@ -636,21 +631,33 @@ def get_fasteddy_data(x,y,z,lidarx,lidary,lidarz,file):
     
     zzz = zzz[foo[0],foo[1],:]
     
+    for j in range(2):
+        ground = interp1d(q[j],ground,axis=j,bounds_error=False)(qi[j])
+        ground = np.delete(ground,np.where(np.isnan(ground)),axis=j)
+    
+    ground = ground[foo[0],foo[1]]
+    
     idx = (idx[foo] - 1).astype(int)
 
     vr = []
+    ground_free = True
     for i in range(len(x)):
         foo = np.where(i == idx)[0]
         
         if len(foo) == 0:
             vr.append(np.nan)
         else:
-            temp_u = np.interp(z[i],zzz[foo[0]],u[foo[0]],left=np.nan,right=np.nan)
-            temp_v = np.interp(z[i],zzz[foo[0]],v[foo[0]],left=np.nan,right=np.nan)
-            temp_w = np.interp(z[i],zzz[foo[0]],w[foo[0]],left=np.nan,right=np.nan)
+            if ground[foo[0]] > z[i]:
+                ground_free = False
+                
+            if ground_free:
+                temp_u = np.interp(z[i],zzz[foo[0]],u[foo[0]],left=np.nan,right=np.nan)
+                temp_v = np.interp(z[i],zzz[foo[0]],v[foo[0]],left=np.nan,right=np.nan)
+                temp_w = np.interp(z[i],zzz[foo[0]],w[foo[0]],left=np.nan,right=np.nan)
         
-            vr.append(((x[i]-lidarx)*temp_u + (y[i]-lidary)*temp_v + (z[i]-lidarz)*temp_w)/np.sqrt((x[i]-lidarx)**2 + (y[i]-lidary)**2 + (z[i]-lidarz)**2))
-
+                vr.append(((x[i]-lidarx)*temp_u + (y[i]-lidary)*temp_v + (z[i]-lidarz)*temp_w)/np.sqrt((x[i]-lidarx)**2 + (y[i]-lidary)**2 + (z[i]-lidarz)**2))
+            else:
+                vr.append(np.nan)
     return np.array(vr) 
 
 ##############################################################################
@@ -798,9 +805,9 @@ def gaussian_pulse(vr,pulse_width,gate_width,maximum_range,nyquist_velocity,cut_
     
     r = np.arange(3e8*gate_width*1e-9/4.0,maximum_range*1000+1,3e8*gate_width*1e-9/2.0)
     
-    rwf = (1/(c*gate_width*1e-9))*(scipy.special.erf((4*np.sqrt(np.log(2))*(r_high[None,:] - r[:,None])/(c*pulse_width*1e-9))
+    rwf = (1/(c*gate_width*1e-9))*(erf((4*np.sqrt(np.log(2))*(r_high[None,:] - r[:,None])/(c*pulse_width*1e-9))
                                                + np.sqrt(np.log(2))*gate_width/pulse_width)
-                                               -scipy.special.erf((4*np.sqrt(np.log(2))*(r_high[None,:] - r[:,None])/(c*pulse_width*1e-9))
+                                               -erf((4*np.sqrt(np.log(2))*(r_high[None,:] - r[:,None])/(c*pulse_width*1e-9))
                                                -np.sqrt(np.log(2))*gate_width/pulse_width))
     
     vr_interp = np.interp(r_high,r_sample,vr,left=np.nan,right=np.nan)
