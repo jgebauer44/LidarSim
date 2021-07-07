@@ -6,13 +6,13 @@
 # to run (e.g., model type).
 #
 # Model information
-model                    = 1       # 1-WRF, 2-FastEddy, 3-NCAR LES
-model_frequency          = 120     # Frequency of model output used for lidar simulation in seconds
-model_dir                = /Users/jgebauer/Documents/WRF_LES/    # Directory with the model output
+model                    = 2       # 1-WRF, 2-FastEddy, 3-NCAR LES
+model_frequency          = 10     # Frequency of model output used for lidar simulation in seconds
+model_dir                = /Users/jgebauer/FE/    # Directory with the model output
 model_timestep           = 0.025   # Model time step (needed for FE output)
-model_prefix             = wrfout  # Prefix for the model data filenames
-coordinate_type          = 1      # 1-Lat/lon, 2-x,y,z
-use_calendar             = 1      # If 1 then the start and end times are defined by calendar. If 0 they are in model integration time
+model_prefix             = FE_PDG  # Prefix for the model data filenames
+coordinate_type          = 2      # 1-Lat/lon, 2-x,y,z
+use_calendar             = 0      # If 1 then the start and end times are defined by calendar. If 0 they are in model integration time
 start_year               = 2018   # Ignored if use_calendar is 0
 start_month              = 9     # Ignored if use_calendar is 0
 start_day                = 4     # Ignored if use_calendar is 0
@@ -25,8 +25,8 @@ end_day                  = 4     # Ignored if use_calendar is 0
 end_hour                 = 21      # Ignored if use_calendar is 0
 end_min                  = 44      # Ignored if use_calendar is 0
 end sec                  = 0      # Ignored if use_calendar is 0
-start_time               = 0      # Start time of the lidar simulation in seconds (Ignored if use_calendar is 1)
-end_time                 = 0      # End time of the lidar simulation in seconds (Ignored if use_calendar is 1)
+start_time               = 7200      # Start time of the lidar simulation in seconds (Ignored if use_calendar is 1)
+end_time                 = 7200      # End time of the lidar simulation in seconds (Ignored if use_calendar is 1)
 ncar_les_nscl            = 21     # Number of scalars in NCAR LES run.
 clouds                   = 1      # Extinguish the beam due to clouds
 #
@@ -37,34 +37,41 @@ append                   = 0      # 1- Append data to existing lidar simulation 
 clobber                  = 1      # 1-Clobber existing file, 0-End simulation if output file exists
 #
 # Lidar scanning information
-instantaneous_scan       = 0       # 0-collect data realistically(requires high frequency model output, 1-collect data instantaneously for each scan at each model output time
+instantaneous_scan       = 1       # 0-collect data realistically(requires high frequency model output, 1-collect data instantaneously for each scan at each model output time
 number_scans             = 1       # Number of scan files to read in
-scan_file1               = /Users/jgebauer/Documents/LidarSimulator/Example_VAD.txt
+scan_file1               = /Users/jgebauer/DBS.txt
 cc1                      = 0       # 1-Means continuously cycle scan 1
 repeat1                  = 300       # The repeat time of scan 1. Ignored if cc1 is 1 or instantaneous_scan is 1.
+dbs1                     = 1       # 1-This is a DBS scan that defines bins by agl
 scan1_az_speed           = 0       # Azimuthal scanning speed for scan 1. 0-Same as motor_az_speed, -1-Scan speed = ray_time (psuedo-CSM)
 scan1_el_speed           = 0       # Elevation scanning speed for scan 1. 0-Same as motor_el_speed, -1-Scan speed = ray_time (psuedo-CSM)
 scan_file2               = None
 cc2                      = 0       # 1-Means continuously cycle scan 2
 repeat2                  = 0     # The repeat time of scan 2. Ignored if cc2 is 1 or instantaneous_scan is 1.
+dbs2                     = 0       # 1-This is a DBS scan that defines bins by agl
 scan2_az_speed           = 0       # Azimuthal scanning speed for scan 2. 0-Same as motor_az_speed, -1-Scan speed = ray_time (psuedo-CSM)
 scan2_el_speed           = 0       # Elevation scanning speed for scan 2. 0-Same as motor_el_speed, -1-Scan speed - ray_time (psuedo-CSM)
 scan_file3               = None
 cc3                      = 0       # 1-Means continuously cycle scan 3
 repeat3                  = 0       # The repeat time of scan 3. Ignored if cc3 is 1 or instantaneous_scan is 1.
+dbs3                     = 0       # 1-This is a DBS scan that defines bins by agl
 scan3_az_speed           = 0       # Azimuthal scanning speed for scan 3. 0-Same as motor_az_speed, -1-Scan speed = ray_time (psuedo-CSM)
 scan3_el_speed           = 0       # Elevation scanning speed for scan 3. 0-Same as motor_el_speed, -1-Scan speed = ray_time (psuedo-CSM)
 scan_file4               = None
 cc4                      = 0       # 1-Means continuously cycle scan 4
 repeat4                  = 0       # The repeat time of scan 4. Ignored if cc4 is 1 or instantaneous_scan is 1.
+dbs4                     = 1       # 1-This is a DBS scan that defines bins by agl
 scan4_az_speed           = 0       # Azimuthal scanning speed for scan 4. 0-Same as motor_az_speed, -1-Scan speed = ray_time (psuedo-CSM)
 scan4_el_speed           = 0       # Elevation scanning speed for scan 4. 0-Same as motor_el_speed, -1-Scan speed = ray_time (psuedo-CSM)
 stare_length             = 0       # Vertical stare length between scheduled scans
 motor_az_speed           = 36     # In degrees/sec (ignored if instantaneous) 
 motor_el_speed           = 36     # In degrees/sec (ignored if instantaneous)
-pulse_width              = 150    # in ns
-gate_width               = 200    # in ns
-maximum_range            = 5      # in km
+pulse_width              = 200    # in ns
+gate_width               = 133.33    # in ns
+maximum_range            = 3      # in km
+dbs_start_height         = 40     # Start height in m AGL for a DBS scan
+dbs_end_height           = 480    # Start height in m AGL for a DBS scan
+dbs_spacing              = 20     # Vertical spacing of DBS points
 sample_resolution        = 10     # This is the resolution in which the model is sampled along the lidar beam 
 nyquist_velocity         = 19.4   # in m/s
 ray_time                 = 1      # Time it takes to collect a ray in seconds
@@ -73,6 +80,6 @@ ray_time                 = 1      # Time it takes to collect a ray in seconds
 # Lidar position information
 lidar_lat                = 35.3   # latitude of simulated lidar in degrees (ignored if coordinate_type is 2)
 lidar_lon                = -98.0  # longitude of simulated lidar in degrees (ignored if coordinate_type is 2)
-lidar_x                  = 5000   # x position of simulated lidar in default units of model (ignored if coordinate_type is 1)
-lidar_y                  = 5000   # y position of simulated lidar in default units of model (ignored if coordinate_type is 1)
-lidar_alt                = 700    # height of the simulated lidar (m above sea level)
+lidar_x                  = 8290   # x position of simulated lidar in default units of model (ignored if coordinate_type is 1)
+lidar_y                  = 8090   # y position of simulated lidar in default units of model (ignored if coordinate_type is 1)
+lidar_alt                = 264.69    # height of the simulated lidar (m above sea level)

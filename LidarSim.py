@@ -11,7 +11,6 @@ import xarray as xr
 from netCDF4 import Dataset
 from scipy.interpolate import interp1d
 from scipy.special import erf
-import matplotlib.pyplot as plt
 from argparse import ArgumentParser
 from datetime import datetime, timedelta
 
@@ -41,15 +40,19 @@ def read_namelist(filename):
                  'scan_file1':'None',
                  'cc1':0,                  # 1-Means continuously cycle scan 1. Ignored if instantaneous_scan is 1.
                  'repeat1':0.0,               # The repeat time of scan 1. Ignored if cc1 is 1 or instantaneous_scan is 1.
+                 'dbs1':0,                    # 1 means scan 1 is a DBS scan with gates specified by height agl
                  'scan_file2':'None',
                  'cc2':0,                    # 1-Means continuously cycle scan 2. Ignored if instantaneous_scan is 1.
                  'repeat2':0.0,                # The repeat time of scan 2. Ignored if cc2 is 1 or instantaneous_scan is 1.
+                 'dbs2':0,                   # 1 means scan 1 is a DBS scan with gates specified by height agl
                  'scan_file3':'None',
                  'cc3':0,                    # 1-Means continuously cycle scan 3. Ignored if instantaneous_scan is 1.
                  'repeat3':0.0,                # The repeat time of scan 3. Ignored if cc3 is 1 or instantaneous_scan is 1.
+                 'dbs3':0,                   # 1 means scan 1 is a DBS scan with gates specified by height agl
                  'scan_file4':'None',
                  'cc4':0,                    # 1-Means continuously cycle scan 4. Ignored if instantaneous_scan 1.
                  'repeat4':0.0,                # The repeat time of scan 4. Ignored if cc4 is 1 or instantaneous_scan is 1.
+                 'dbs4':0,                   # 1 means scan 1 is a DBS scan with gates specified by height agl
                  'stare_length':0.0,            # Length of vertical stare in between scheduled scans in seconds.
                  'motor_az_speed':36.0,       # In degrees/sec (ignored if instantaneous)
                  'motor_el_speed':36.0,       # In degrees/sec (ignored if instantaneous)
@@ -65,6 +68,9 @@ def read_namelist(filename):
                  'pulse_width':150.0,         # length of pulse in ns
                  'gate_width':200.0,          # length of range gates in ns
                  'maximum_range':5.0,         # maximum range of the lidar in km
+                 'dbs_start_height':40,       # Start height of DBS scan
+                 'dbs_end_height':480,        # End height of DBS scans
+                 'dbs_spacing':20,            # Vertical spacing of dbs points
                  'sample_resolution':10,      # sample resolution of the model along the lidar beam in m.
                  'nyquist_velocity':19.4,    # Nyquist velocity of the lidar
                  'coordinate_type':1,        # 1-Lat/Lon, 2-x,y,z
@@ -226,7 +232,7 @@ def read_namelist(filename):
 # simulation period based on the scanning strategy set by the user.
 ##############################################################################
   
-def get_scan_timing(scans, start_time, end_time, model_time, cced, repeats, stare_length, 
+def get_scan_timing(scans, start_time, end_time, model_time, cced, repeats, stare_length,
                     scan_speeds,ray_time,instantaneous_scan,use_calendar):
     
     scan_type = []
@@ -372,7 +378,7 @@ def get_scan_timing(scans, start_time, end_time, model_time, cced, repeats, star
                 
                 if new_cced[i] == 0:
                     temp_status[i] = 0
-                    timer[i] = scan_time[-1]
+                    timer[i] = np.cumsum(scan_time)[-1]
                 
                 foo = np.where(((timer[1:]-new_repeats[1:]) >= 0) & (new_cced[1:] == 0))[0]
                 temp_status[foo+1] = 1
@@ -797,13 +803,30 @@ def get_ncarles_data(x,y,z,lidarx,lidary,lidarz,file,nscl):
 # gaussian pusle power
 ##############################################################################
 
-def gaussian_pulse(vr,pulse_width,gate_width,maximum_range,nyquist_velocity,cut_off,r_sample):
+def gaussian_pulse(vr,pulse_width,gate_width,maximum_range,nyquist_velocity,cut_off,r_sample,
+                   key, elev, namelist):
     
     
     c = 3e8
     r_high = np.arange(1,(maximum_range*1000)+1)
     
-    r = np.arange(3e8*gate_width*1e-9/4.0,maximum_range*1000+1,3e8*gate_width*1e-9/2.0)
+    if ((key == 1) & (namelist['dbs1'] == 1)):
+        r = np.arange(namelist['dbs_start_height'],namelist['dbs_end_height']
+                               +1,namelist['dbs_spacing'])/np.cos(90-np.deg2rad(elev))
+        
+    elif ((key == 2) & (namelist['dbs2'] == 1)):
+         r = np.arange(namelist['dbs_start_height'],namelist['dbs_end_height']
+                               +1,namelist['dbs_spacing'])/np.cos(90-np.deg2rad(elev))
+    
+    elif ((key == 3) & (namelist['dbs3'] == 1)):
+         r = np.arange(namelist['dbs_start_height'],namelist['dbs_end_height']
+                               +1,namelist['dbs_spacing'])/np.cos(90-np.deg2rad(elev))
+    
+    elif ((key == 4) & (namelist['dbs4'] == 1)):
+         r = np.arange(namelist['dbs_start_height'],namelist['dbs_end_height']
+                               +1,namelist['dbs_spacing'])/np.cos(90-np.deg2rad(elev))
+    else:
+        r = np.arange(3e8*gate_width*1e-9/4.0,maximum_range*1000+1,3e8*gate_width*1e-9/2.0)
     
     rwf = (1/(c*gate_width*1e-9))*(erf((4*np.sqrt(np.log(2))*(r_high[None,:] - r[:,None])/(c*pulse_width*1e-9))
                                                + np.sqrt(np.log(2))*gate_width/pulse_width)
@@ -856,7 +879,7 @@ def gaussian_pulse(vr,pulse_width,gate_width,maximum_range,nyquist_velocity,cut_
 
 def sim_observations(lidar_x, lidar_y, lidar_z, pulse_width, gate_width, sample_resolution, maximum_range,
                      nyquist_velocity, coords, model_type, model_time, model_step, files, instantaneous_scan,
-                     prefix, model_frequency, nscl, clouds, xx = None, yy = None, transform = None):
+                     prefix, model_frequency, nscl, clouds, scan_key, namelist, xx = None, yy = None, transform = None):
     
     if 3e8*gate_width*1e-9/2.0 < sample_resolution:
         r = np.arange(1,maximum_range*1000,3e8*gate_width*1e-9/2.0)
@@ -866,12 +889,13 @@ def sim_observations(lidar_x, lidar_y, lidar_z, pulse_width, gate_width, sample_
     # Find the maximum and minimum range needed for full gate sample
     c =3e8
     r_high = np.arange(1,5001)
-    rwf = (1/(c*gate_width*1e-9))*(scipy.special.erf((4*np.sqrt(np.log(2))*(r_high -3000)/(c*pulse_width*1e-9))
+    rwf = (1/(c*gate_width*1e-9))*(erf((4*np.sqrt(np.log(2))*(r_high -3000)/(c*pulse_width*1e-9))
                                                + np.sqrt(np.log(2))*gate_width/pulse_width)
-                                               -scipy.special.erf((4*np.sqrt(np.log(2))*(r_high -3000)/(c*pulse_width*1e-9))
+                                               -erf((4*np.sqrt(np.log(2))*(r_high -3000)/(c*pulse_width*1e-9))
                                                -np.sqrt(np.log(2))*gate_width/pulse_width))
-    foo = np.where(rwf != 0)[0]
-    cut_off = int(len(foo)/2)
+    foo = np.where(rwf > 0.001)[0]
+    #cut_off = int(len(foo)/2)
+    cut_off = 0
     
     
     if instantaneous_scan == 0:
@@ -885,11 +909,15 @@ def sim_observations(lidar_x, lidar_y, lidar_z, pulse_width, gate_width, sample_
             x = r*np.cos(np.radians(coords[j][1]))*np.sin(np.radians(coords[j][0])) + lidar_x
             y = r*np.cos(np.radians(coords[j][1]))*np.cos(np.radians(coords[j][0])) + lidar_y
             z = r*np.sin(np.radians(coords[j][1])) + lidar_z
+            key = scan_key[j]
+            elev = coords[j][1]
             
         else:
             x = r*np.cos(np.radians(coords[0][j,1]))*np.sin(np.radians(coords[0][j,0])) + lidar_x
             y = r*np.cos(np.radians(coords[0][j,1]))*np.cos(np.radians(coords[0][j,0])) + lidar_y
             z = r*np.sin(np.radians(coords[0][j,1])) + lidar_z
+            key = scan_key[0][j]
+            elev = coords[0][j,1]
         
         if model_type == 1:
             #try:
@@ -918,7 +946,8 @@ def sim_observations(lidar_x, lidar_y, lidar_z, pulse_width, gate_width, sample_
             return [-999]
         
         # Now we get the vr that the lidar would observe assuming a gaussian pulse
-        sim_obs.append(gaussian_pulse(temp,pulse_width,gate_width,maximum_range,nyquist_velocity,cut_off,r))
+        sim_obs.append(gaussian_pulse(temp,pulse_width,gate_width,maximum_range,nyquist_velocity,cut_off,r,
+                                      key,elev,namelist))
            
     return sim_obs
 
@@ -930,12 +959,27 @@ def write_to_file(sim_obs,scan_key,lidar_time,model_time_key,model_time,scans,na
     
     # We don't want to append the file needs to be created the first time
     
-    obs = np.array(sim_obs)
     if ((namelist['append'] == 0) & (not os.path.exists(namelist['output_dir'] + namelist['outfile']))):
         
         fid = Dataset(namelist['output_dir'] + namelist['outfile'],'w')
         
         rr = np.arange(3e8*namelist['gate_width']*1e-9/4.0,namelist['maximum_range']*1000+1,3e8*namelist['gate_width']*1e-9/2.0)
+        
+        if namelist['dbs1'] == 1:
+            dbs1_rr = np.arange(namelist['dbs_start_height'],namelist['dbs_end_height']
+                               +1,namelist['dbs_spacing'])/np.cos(np.deg2rad(90-scans[0][0,1]))
+        
+        if namelist['dbs2'] == 2:
+            dbs2_rr = np.arange(namelist['dbs_start_height'],namelist['dbs_end_height']
+                               +1,namelist['dbs_spacing'])/np.cos(np.deg2rad(90-scans[1][0,1])) 
+        
+        if namelist['dbs3'] == 1:
+            dbs3_rr = np.arange(namelist['dbs_start_height'],namelist['dbs_end_height']
+                               +1,namelist['dbs_spacing'])/np.cos(np.deg2rad(90-scans[2][0,1]))
+        
+        if namelist['dbs4'] == 1:
+            dbs4_rr = np.arange(namelist['dbs_start_height'],namelist['dbs_end_height']
+                               +1,namelist['dbs_spacing'])/np.cos(np.deg2rad(90-scans[3][0,1]))
         
         
         r = fid.createDimension('range',len(rr))
@@ -973,7 +1017,12 @@ def write_to_file(sim_obs,scan_key,lidar_time,model_time_key,model_time,scans,na
             scan1_num = fid.createDimension('scan1_num',None)
             scan1_rays = fid.createDimension('scan1_rays',len(scans[0]))
             
-            scan1 = fid.createVariable('scan1','f8',('scan1_num','scan1_rays','range',))
+            if namelist['dbs1'] == 1:
+                dbs1_r = fid.createDimension('dbs_range1',len(dbs1_rr))
+                scan1 = fid.createVariable('scan1','f8',('scan1_num','scan1_rays','dbs_range1',))
+            else:
+                scan1 = fid.createVariable('scan1','f8',('scan1_num','scan1_rays','range',))
+                
             scan1.long_name = 'radial velocity from scan 1'
             scan1.units = 'm/s'
             
@@ -1000,7 +1049,12 @@ def write_to_file(sim_obs,scan_key,lidar_time,model_time_key,model_time,scans,na
             scan2_num = fid.createDimension('scan2_num',None)
             scan2_rays = fid.createDimension('scan2_rays',len(scans[1]))
             
-            scan2 = fid.createVariable('scan2','f8',('scan2_num','scan2_rays','range',))
+            if namelist['dbs2'] == 1:
+                dbs2_r = fid.createDimension('dbs_range2',len(dbs2_rr))
+                scan2 = fid.createVariable('scan2','f8',('scan2_num','scan2_rays','dbs_range2',))
+            else:
+                scan2 = fid.createVariable('scan2','f8',('scan2_num','scan2_rays','range',))
+                
             scan2.long_name = 'radial velocity from scan 2'
             scan2.units = 'm/s'
             
@@ -1027,7 +1081,12 @@ def write_to_file(sim_obs,scan_key,lidar_time,model_time_key,model_time,scans,na
             scan3_num = fid.createDimension('scan3_num',None)
             scan3_rays = fid.createDimension('scan3_rays',len(scans[2]))
             
-            scan3 = fid.createVariable('scan3','f8',('scan3_num','scan3_rays','range',))
+            if namelist['dbs3'] == 1:
+                dbs3_r = fid.createDimension('dbs_range3',len(dbs3_rr))
+                scan3 = fid.createVariable('scan3','f8',('scan3_num','scan3_rays','dbs_range3',))
+            else:
+                scan3 = fid.createVariable('scan3','f8',('scan3_num','scan3_rays','range',))
+                
             scan3.long_name = 'radial velocity from scan 3'
             scan3.units = 'm/s'
             
@@ -1054,7 +1113,12 @@ def write_to_file(sim_obs,scan_key,lidar_time,model_time_key,model_time,scans,na
             scan4_num = fid.createDimension('scan4_num',None)
             scan4_rays = fid.createDimension('scan4_rays',len(scans[3]))
             
-            scan4 = fid.createVariable('scan4','f8',('scan4_num','scan4_rays','range',))
+            if namelist['dbs4'] == 1:
+                dbs4_r = fid.createDimension('dbs_range4',len(dbs4_rr))
+                scan4 = fid.createVariable('scan4','f8',('scan4_num','scan4_rays','dbs_range4',))
+            else:
+                scan4 = fid.createVariable('scan4','f8',('scan4_num','scan4_rays','range',))
+                
             scan4.long_name = 'radial velocity from scan 4'
             scan4.units = 'm/s'
             
@@ -1092,15 +1156,19 @@ def write_to_file(sim_obs,scan_key,lidar_time,model_time_key,model_time,scans,na
         fid.scan_file1 = namelist['scan_file1']
         fid.cc1 = str(namelist['cc1'] )
         fid.repeat1 = str(namelist['repeat1']) + ' seconds'
+        fid.dbs1 = str(namelist['dbs1'])
         fid.scan_file2 = namelist['scan_file2']
         fid.cc2 = str(namelist['cc2'] )
         fid.repeat2 = str(namelist['repeat2']) + ' seconds'
+        fid.dbs2 = str(namelist['dbs2'])
         fid.scan_file3 = namelist['scan_file3']
         fid.cc3 = str(namelist['cc3'] )
         fid.repeat3 = str(namelist['repeat3']) + ' seconds'
+        fid.dbs3 = str(namelist['dbs3'])
         fid.scan_file4 = namelist['scan_file4']
         fid.cc4 = str(namelist['cc4'] )
         fid.repeat4 = str(namelist['repeat4']) + ' seconds'
+        fid.dbs1 = str(namelist['dbs4'])
         fid.stare_length = str(namelist['stare_length'])
         fid.motor_az_speed = str(namelist['motor_az_speed']) + ' degrees/sec'
         fid.motor_el_speed = str(namelist['motor_el_speed']) + ' degrees/sec'
@@ -1170,7 +1238,7 @@ def write_to_file(sim_obs,scan_key,lidar_time,model_time_key,model_time,scans,na
         if len(foo > 0):
             temp_index1 = stare.shape[0]
             temp_index2 = stare.shape[0] + len(foo)
-            stare[temp_index1:temp_index2,:] = obs[foo,:]
+            stare[temp_index1:temp_index2,:] = np.array([sim_obs[x] for x in foo])[:]
             if namelist['use_calendar'] == 1:
                 stare_time[temp_index1:temp_index2] = np.array([(model_time[model_time_key] - datetime(1970,1,1)).total_seconds() - base_time[0]] * len(foo))
                 stare_model_time[temp_index1:temp_index2] = np.array([(model_time[model_time_key] - datetime(1970,1,1)).total_seconds() - base_time[0]] * len(foo))
@@ -1181,7 +1249,7 @@ def write_to_file(sim_obs,scan_key,lidar_time,model_time_key,model_time,scans,na
         foo = np.where(np.array(scan_key) == 1)[0]
         if len(foo > 0):
             temp_index1 = scan1.shape[0]
-            scan1[temp_index1,:,:] = obs[foo,:]
+            scan1[temp_index1,:,:] = np.array([sim_obs[x] for x in foo])[:]
             if namelist['use_calendar'] == 1:
                 scan1_time[temp_index1,:] = np.array([(model_time[model_time_key] - datetime(1970,1,1)).total_seconds() - base_time[0]] * len(foo))
                 scan1_model_time[temp_index1,:] = np.array([(model_time[model_time_key] - datetime(1970,1,1)).total_seconds() - base_time[0]] * len(foo))
@@ -1192,7 +1260,7 @@ def write_to_file(sim_obs,scan_key,lidar_time,model_time_key,model_time,scans,na
         foo = np.where(np.array(scan_key) == 2)[0]
         if len(foo > 0):
             temp_index1 = scan2.shape[0]
-            scan2[temp_index1,:,:] = obs[foo,:]
+            scan2[temp_index1,:,:] = np.array([sim_obs[x] for x in foo])
             if namelist['use_calendar'] == 1:
                 scan2_time[temp_index1,:] = np.array([(model_time[model_time_key] - datetime(1970,1,1)).total_seconds() - base_time[0]] * len(foo))
                 scan2_model_time[temp_index1,:] = np.array([(model_time[model_time_key] - datetime(1970,1,1)).total_seconds() - base_time[0]] * len(foo))
@@ -1203,7 +1271,7 @@ def write_to_file(sim_obs,scan_key,lidar_time,model_time_key,model_time,scans,na
         foo = np.where(np.array(scan_key) == 3)[0]
         if len(foo > 0):
             temp_index1 = scan3.shape[0]
-            scan3[temp_index1,:,:] = obs[foo,:]
+            scan3[temp_index1,:,:] = np.array([sim_obs[x] for x in foo])
             if namelist['use_calendar'] == 1:
                 scan3_time[temp_index1,:] = np.array([(model_time[model_time_key] - datetime(1970,1,1)).total_seconds() - base_time[0]] * len(foo))
                 scan3_model_time[temp_index1,:] = np.array([(model_time[model_time_key] - datetime(1970,1,1)).total_seconds() - base_time[0]] * len(foo))
@@ -1214,7 +1282,7 @@ def write_to_file(sim_obs,scan_key,lidar_time,model_time_key,model_time,scans,na
         foo = np.where(np.array(scan_key) == 4)[0]
         if len(foo > 0):
             temp_index1 = scan4.shape[0]
-            scan4[temp_index1,:,:] = obs[foo,:]
+            scan4[temp_index1,:,:] = np.array([sim_obs[x] for x in foo])
             if namelist['use_calendar'] == 1:
                 scan4_time[temp_index1,:] = np.array([(model_time[model_time_key] - datetime(1970,1,1)).total_seconds() - base_time[0]] * len(foo))
                 scan4_model_time[temp_index1,:] = np.array([(model_time[model_time_key] - datetime(1970,1,1)).total_seconds() - base_time[0]] * len(foo))
@@ -1223,6 +1291,7 @@ def write_to_file(sim_obs,scan_key,lidar_time,model_time_key,model_time,scans,na
                 scan4_model_time[temp_index1,:] = np.array([model_time[model_time_key] - base_time[0]] * len(foo))
             
     else:
+        obs = np.array(sim_obs)
         if scan_key[0] == 0:
             temp_index1 = stare.shape[0]
             temp_index2 = stare.shape[0] + len(scan_key)
@@ -1503,7 +1572,7 @@ for i in range(len(model_time)):
                             namelist['gate_width'], namelist['sample_resolution'], namelist['maximum_range'], namelist['nyquist_velocity'],
                             [az_el_coords[x] for x in foo[bar]],namelist['model'],model_time[i],namelist['model_timestep'],files, namelist['instantaneous_scan'],
                             namelist['model_dir'] + namelist['model_prefix'],namelist['model_frequency'],namelist['ncar_les_nscl'],
-                            namelist['clouds'],xx, yy, transformer)
+                            namelist['clouds'],[scan_key[x] for x in foo[bar]],namelist, xx, yy, transformer)
     
     # If not we move on to the next iteration since no new data  nothing will need
     # to be written to the file
