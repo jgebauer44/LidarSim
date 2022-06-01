@@ -797,6 +797,132 @@ def get_ncarles_data(x,y,z,lidarx,lidary,lidarz,file,nscl):
             vr.append(((x[i]-lidarx)*temp_u + (y[i]-lidary)*temp_v + (z[i]-lidarz)*temp_w)/np.sqrt((x[i]-lidarx)**2 + (y[i]-lidary)**2 + (z[i]-lidarz)**2))
 
     return np.array(vr)
+
+###############################################################################
+# Get data from a MicroHH run.
+###############################################################################
+   
+def get_MicroHH_data(x,y,z,lidarx,lidary,lidarz,model_time, u_file,v_file,w_file):
+    fu = xr.open_dataset(u_file, decode_times=False)
+    
+    t = fu['time'].values[:]
+    
+    foo = np.where(t == model_time)[0][0]
+    
+    zz = fu['z'].values[:-1]
+    yy = fu['y'].values[:-1]
+    
+    fv = xr.open_dataset(v_file, decode_times=False)
+    
+    xx = fv['x'].values[:-1]
+    
+    fw = xr.open_dataset(w_file, decode_times=False)
+    
+    xx, yy = np.meshgrid(xx, yy)
+    
+    zz = zz[:,None,None] * np.ones(xx.shape)[None,:,:]
+    
+    zz = zz.T
+    xx = xx.T
+    yy = yy.T
+    
+    if np.max(x) > np.max(xx[:,0]):
+        ixmax = f.dims['xIndex']-1
+        if np.min(x) < np.min(xx[:,0]):
+            ixmin = 0
+        else:
+            ixmin = np.where((np.min(x) > xx[:,0]))[0][-1]
+    elif np.min(x) < np.min(xx[:,0]):
+        ixmin = 0
+        ixmax = np.where((np.max(x) <= xx[:,0]))[0][0]
+    else:
+        ixmin, ixmax = np.where((np.min(x) > xx[:,0]))[0][-1], np.where((np.max(x) <= xx[:,0]))[0][0]
+    
+    if np.max(y) > np.max(yy[0]):
+        iymax = f.dims['yIndex']-1
+        if np.min(y) < np.min(yy[0]):
+            iymin = 0
+        else:
+            iymin = np.where((np.min(y) > yy[0]))[0][-1]
+    elif np.min(y) < np.min(yy[0]):
+        iymin = 0
+        iymax = np.where((np.max(y) <= yy[0]))[0][0]
+    else:
+        iymin, iymax = np.where((np.min(y) > yy[0]))[0][-1], np.where((np.max(y) <= yy[0]))[0][0]
+    
+    if np.max(z) > np.max(np.min(np.min(zz,axis=0),axis=0)):
+        izmax = zz.shape[0]-1
+    else:
+        izmax = np.where(np.max(z) < np.min(np.min(zz,axis=0),axis=0))[0][0]
+    
+    u = (fu['u'].values[foo,:-1,:-1,1:] + fu['u'].values[foo,:-1,:-1,:-1])/2.
+    u = u[:izmax+1,iymin:iymax+1,ixmin:ixmax+1].T
+    
+    fu.close()
+    
+    v = (fv['v'].values[foo,:-1,1:,:-1] + fv['v'].values[foo,:-1,:-1,:-1])/2.
+    v = v[:izmax+1,iymin:iymax+1,ixmin:ixmax+1].T
+    
+    fv.close()
+    
+    w = (fw['w'].values[foo,1:,:-1,:-1] + fw['w'].values[foo,:-1,:-1,:-1])/2.
+    
+    w = w[:izmax+1,iymin:iymax+1,ixmin:ixmax+1].T
+    
+    fw.close()
+    
+    zzz = zz[ixmin:ixmax+1,iymin:iymax+1,:izmax+1]
+    
+    qi = (x,y)
+    q = (xx[ixmin:ixmax+1,0],yy[0,iymin:iymax+1])
+            
+    idx = np.identity(len(x))*np.arange(1,len(x)+1)
+    
+    for j in range(2):
+        u = interp1d(q[j],u,axis=j,bounds_error=False)(qi[j])
+        u = np.delete(u,np.where(np.isnan(u))[j],axis=j)
+        idx = np.delete(idx,np.where(np.isnan(u))[j],axis=j)
+    
+    foo = np.where(idx != 0)
+          
+    u = u[foo[0],foo[1],:]
+    
+    for j in range(2):
+        v = interp1d(q[j],v,axis=j,bounds_error=False)(qi[j])
+        v = np.delete(v,np.where(np.isnan(v))[j],axis=j)
+    
+    v = v[foo[0],foo[1],:]
+    
+    for j in range(2):
+        w = interp1d(q[j],w,axis=j,bounds_error=False)(qi[j])
+        w = np.delete(w,np.where(np.isnan(w)),axis=j)
+    
+    w = w[foo[0],foo[1],:]
+    
+    
+    for j in range(2):
+        zzz = interp1d(q[j],zzz,axis=j,bounds_error=False)(qi[j])
+        zzz = np.delete(zzz,np.where(np.isnan(zzz)),axis=j)
+    
+    zzz = zzz[foo[0],foo[1],:]
+    
+    idx = (idx[foo] - 1).astype(int)
+
+    vr = []
+    for i in range(len(x)):
+        foo = np.where(i == idx)[0]
+        
+        if len(foo) == 0:
+            vr.append(np.nan)
+        else:
+            temp_u = np.interp(z[i],zzz[foo[0]],u[foo[0]],left=np.nan,right=np.nan)
+            temp_v = np.interp(z[i],zzz[foo[0]],v[foo[0]],left=np.nan,right=np.nan)
+            temp_w = np.interp(z[i],zzz[foo[0]],w[foo[0]],left=np.nan,right=np.nan)
+        
+            vr.append(((x[i]-lidarx)*temp_u + (y[i]-lidary)*temp_v + (z[i]-lidarz)*temp_w)/np.sqrt((x[i]-lidarx)**2 + (y[i]-lidary)**2 + (z[i]-lidarz)**2))
+
+    return np.array(vr)
+    
     
 ##############################################################################
 # This function samples model data to the specified range gates assuming a 
@@ -940,6 +1066,18 @@ def sim_observations(lidar_x, lidar_y, lidar_z, pulse_width, gate_width, sample_
                 foo = np.where(np.array(files) == prefix + '.' + str(int(model_time/model_frequency)))[0][0]
             
             temp = get_ncarles_data(x,y,z,lidar_x,lidar_y,lidar_z,files[foo],nscl)
+        
+        elif model_type == 4:
+            foo = np.where(np.array(files) == prefix + 'u.nc')[0][0]
+            u_file = files[foo]
+            
+            foo = np.where(np.array(files) == prefix + 'v.nc')[0][0]
+            v_file = files[foo]
+            
+            foo = np.where(np.array(files) == prefix + 'w.nc')[0][0]
+            w_file = files[foo]
+            
+            temp = get_MicroHH_data(x,y,z,lidar_x,lidar_y,lidar_z,model_time, u_file, v_file, w_file)
             
         else:
             print('ERROR: Unknown model type specified')
@@ -1461,8 +1599,10 @@ else:
 
 if namelist['model_prefix'] == 'None':
     filename = namelist['model_dir'] + '*'
+    dname =  namelist['model_dir']
 else:
     filename = namelist['model_dir'] + namelist['model_prefix'] + '*'
+    dname = namelist['model_dir'] + namelist['model_prefix']
 
 # Now that we got the scan schedules we can start simulating lidar observations
 # For now, this is done serially, but after serial tests this will be done in parallel
@@ -1571,7 +1711,7 @@ for i in range(len(model_time)):
         temp = sim_observations(lidar_x_proj,lidar_y_proj,namelist['lidar_alt'], namelist['pulse_width'],
                             namelist['gate_width'], namelist['sample_resolution'], namelist['maximum_range'], namelist['nyquist_velocity'],
                             [az_el_coords[x] for x in foo[bar]],namelist['model'],model_time[i],namelist['model_timestep'],files, namelist['instantaneous_scan'],
-                            namelist['model_dir'] + namelist['model_prefix'],namelist['model_frequency'],namelist['ncar_les_nscl'],
+                            dname,namelist['model_frequency'],namelist['ncar_les_nscl'],
                             namelist['clouds'],[scan_key[x] for x in foo[bar]],namelist, xx, yy, transformer)
     
     # If not we move on to the next iteration since no new data  nothing will need
