@@ -1,10 +1,8 @@
 import os
-import shutil
 import sys
 import numpy as np
 import glob
 import pyproj
-import scipy.io
 import time
 import struct
 import xarray as xr
@@ -402,7 +400,7 @@ def get_wrf_data(x,y,z,lidarx,lidary,lidarz,file,cloud,xx,yy,transform):
     
     if xx is None:
         xx, yy = np.meshgrid(np.arange(f.dims['west_east']) * f.DX, np.arange(f.dims['south_north']) * f.DY)
-        
+    
     zz = (f['PH'].values[0] + f['PHB'].values[0])/9.81
     zz = (zz[1:] + zz[:-1])/2.
     
@@ -475,8 +473,8 @@ def get_wrf_data(x,y,z,lidarx,lidary,lidarz,file,cloud,xx,yy,transform):
     
     for j in range(2):
         u = interp1d(q[j],u,axis=j,bounds_error=False)(qi[j])
-        u = np.delete(u,np.where(np.isnan(u))[j],axis=j)
         idx = np.delete(idx,np.where(np.isnan(u))[j],axis=j)
+        u = np.delete(u,np.where(np.isnan(u))[j],axis=j)
     
     foo = np.where(idx != 0)
           
@@ -490,14 +488,14 @@ def get_wrf_data(x,y,z,lidarx,lidary,lidarz,file,cloud,xx,yy,transform):
     
     for j in range(2):
         w = interp1d(q[j],w,axis=j,bounds_error=False)(qi[j])
-        w = np.delete(w,np.where(np.isnan(w)),axis=j)
+        w = np.delete(w,np.where(np.isnan(w))[j],axis=j)
     
     w = w[foo[0],foo[1],:]
     
     
     for j in range(2):
         zzz = interp1d(q[j],zzz,axis=j,bounds_error=False)(qi[j])
-        zzz = np.delete(zzz,np.where(np.isnan(zzz)),axis=j)
+        zzz = np.delete(zzz,np.where(np.isnan(zzz))[j],axis=j)
     
     zzz = zzz[foo[0],foo[1],:]
     
@@ -507,7 +505,7 @@ def get_wrf_data(x,y,z,lidarx,lidary,lidarz,file,cloud,xx,yy,transform):
         
         for j in range(2):
             qtotal = interp1d(q[j],qtotal,axis=j,bounds_error=False)(qi[j])
-            qtotal = np.delete(qtotal,np.where(np.isnan(w)),axis=j)
+            qtotal = np.delete(qtotal,np.where(np.isnan(qtotal))[j],axis=j)
         
         qtotal = qtotal[foo[0],foo[1],:]
         
@@ -544,18 +542,18 @@ def get_wrf_data(x,y,z,lidarx,lidary,lidarz,file,cloud,xx,yy,transform):
 ##############################################################################
 
 def get_fasteddy_data(x,y,z,lidarx,lidary,lidarz,file):
-    f = xr.open_dataset(file)
+    f = Dataset(file,'r')
     
-    zz = f['zPos'].values[0]
-    xx = f['xPos'].values[0,0]
-    yy = f['yPos'].values[0,0]
+    zz = f['zPos'][0]
+    xx = f['xPos'][0,0]
+    yy = f['yPos'][0,0]
     
     zz = zz.T
     xx = xx.T
     yy = yy.T
     
     if np.max(x) > np.max(xx[:,0]):
-        ixmax = f.dims['xIndex']-1
+        ixmax = xx.shape[0]-1
         if np.min(x) < np.min(xx[:,0]):
             ixmin = 0
         else:
@@ -568,7 +566,7 @@ def get_fasteddy_data(x,y,z,lidarx,lidary,lidarz,file):
     
     
     if np.max(y) > np.max(yy[0]):
-        iymax = f.dims['yIndex']-1
+        iymax = yy.shape[1]-1
         if np.min(y) < np.min(yy[0]):
             iymin = 0
         else:
@@ -584,19 +582,21 @@ def get_fasteddy_data(x,y,z,lidarx,lidary,lidarz,file):
     else:
         izmax = np.where(np.max(z) < np.min(np.min(zz,axis=0),axis=0))[0][0]
     
-    u = f['u'].values[0]
+    u = f['u'][0]
     
     u = u[:izmax+1,iymin:iymax+1,ixmin:ixmax+1].T
     
-    v = f['v'].values[0]
+    v = f['v'][0]
     
     v = v[:izmax+1,iymin:iymax+1,ixmin:ixmax+1].T
     
-    w = f['w'].values[0]
+    w = f['w'][0]
     
     w = w[:izmax+1,iymin:iymax+1,ixmin:ixmax+1].T
     
-    ground = f['topoPos'].values[0]
+    ground = f['topoPos'][0]
+    
+    f.close()
     ground = ground[iymin:iymax+1,ixmin:ixmax+1].T
     
     zzz = zz[ixmin:ixmax+1,iymin:iymax+1,:izmax+1]
@@ -611,8 +611,8 @@ def get_fasteddy_data(x,y,z,lidarx,lidary,lidarz,file):
     
     for j in range(2):
         u = interp1d(q[j],u,axis=j,bounds_error=False)(qi[j])
-        u = np.delete(u,np.where(np.isnan(u))[j],axis=j)
         idx = np.delete(idx,np.where(np.isnan(u))[j],axis=j)
+        u = np.delete(u,np.where(np.isnan(u))[j],axis=j)
     
     foo = np.where(idx != 0)
           
@@ -626,20 +626,20 @@ def get_fasteddy_data(x,y,z,lidarx,lidary,lidarz,file):
     
     for j in range(2):
         w = interp1d(q[j],w,axis=j,bounds_error=False)(qi[j])
-        w = np.delete(w,np.where(np.isnan(w)),axis=j)
+        w = np.delete(w,np.where(np.isnan(w))[j],axis=j)
     
     w = w[foo[0],foo[1],:]
     
     
     for j in range(2):
         zzz = interp1d(q[j],zzz,axis=j,bounds_error=False)(qi[j])
-        zzz = np.delete(zzz,np.where(np.isnan(zzz)),axis=j)
+        zzz = np.delete(zzz,np.where(np.isnan(zzz))[j],axis=j)
     
     zzz = zzz[foo[0],foo[1],:]
     
     for j in range(2):
         ground = interp1d(q[j],ground,axis=j,bounds_error=False)(qi[j])
-        ground = np.delete(ground,np.where(np.isnan(ground)),axis=j)
+        ground = np.delete(ground,np.where(np.isnan(ground)[j]),axis=j)
     
     ground = ground[foo[0],foo[1]]
     
@@ -755,8 +755,8 @@ def get_ncarles_data(x,y,z,lidarx,lidary,lidarz,file,nscl):
     
     for j in range(2):
         u = interp1d(q[j],u,axis=j,bounds_error=False)(qi[j])
-        u = np.delete(u,np.where(np.isnan(u))[j],axis=j)
         idx = np.delete(idx,np.where(np.isnan(u))[j],axis=j)
+        u = np.delete(u,np.where(np.isnan(u))[j],axis=j)
     
     foo = np.where(idx != 0)
           
@@ -770,14 +770,14 @@ def get_ncarles_data(x,y,z,lidarx,lidary,lidarz,file,nscl):
     
     for j in range(2):
         w = interp1d(q[j],w,axis=j,bounds_error=False)(qi[j])
-        w = np.delete(w,np.where(np.isnan(w)),axis=j)
+        w = np.delete(w,np.where(np.isnan(w))[j],axis=j)
     
     w = w[foo[0],foo[1],:]
     
     
     for j in range(2):
         zzz = interp1d(q[j],zzz,axis=j,bounds_error=False)(qi[j])
-        zzz = np.delete(zzz,np.where(np.isnan(zzz)),axis=j)
+        zzz = np.delete(zzz,np.where(np.isnan(zzz))[j],axis=j)
     
     zzz = zzz[foo[0],foo[1],:]
     
@@ -803,20 +803,20 @@ def get_ncarles_data(x,y,z,lidarx,lidary,lidarz,file,nscl):
 ###############################################################################
    
 def get_MicroHH_data(x,y,z,lidarx,lidary,lidarz,model_time, u_file,v_file,w_file):
-    fu = xr.open_dataset(u_file, decode_times=False)
+    fu = Dataset(u_file)
     
-    t = fu['time'].values[:]
+    t = fu['time'][:]
     
     foo = np.where(t == model_time)[0][0]
     
-    zz = fu['z'].values[:-1]
-    yy = fu['y'].values[:-1]
+    zz = fu['z'][:-1]
+    yy = fu['y'][:-1]
     
-    fv = xr.open_dataset(v_file, decode_times=False)
+    fv = Dataset(v_file)
     
-    xx = fv['x'].values[:-1]
+    xx = fv['x'][:-1]
     
-    fw = xr.open_dataset(w_file, decode_times=False)
+    fw = Dataset(w_file)
     
     xx, yy = np.meshgrid(xx, yy)
     
@@ -827,7 +827,7 @@ def get_MicroHH_data(x,y,z,lidarx,lidary,lidarz,model_time, u_file,v_file,w_file
     yy = yy.T
     
     if np.max(x) > np.max(xx[:,0]):
-        ixmax = f.dims['xIndex']-1
+        ixmax = len(xx)-1
         if np.min(x) < np.min(xx[:,0]):
             ixmin = 0
         else:
@@ -839,7 +839,7 @@ def get_MicroHH_data(x,y,z,lidarx,lidary,lidarz,model_time, u_file,v_file,w_file
         ixmin, ixmax = np.where((np.min(x) > xx[:,0]))[0][-1], np.where((np.max(x) <= xx[:,0]))[0][0]
     
     if np.max(y) > np.max(yy[0]):
-        iymax = f.dims['yIndex']-1
+        iymax = len(yy)-1
         if np.min(y) < np.min(yy[0]):
             iymin = 0
         else:
@@ -854,19 +854,21 @@ def get_MicroHH_data(x,y,z,lidarx,lidary,lidarz,model_time, u_file,v_file,w_file
         izmax = zz.shape[0]-1
     else:
         izmax = np.where(np.max(z) < np.min(np.min(zz,axis=0),axis=0))[0][0]
-    
-    u = (fu['u'].values[foo,:-1,:-1,1:] + fu['u'].values[foo,:-1,:-1,:-1])/2.
+   
+    u = fu['u'][foo] 
+    u = (u[:-1,:-1,1:] + u[:-1,:-1,:-1])/2.
     u = u[:izmax+1,iymin:iymax+1,ixmin:ixmax+1].T
     
     fu.close()
-    
-    v = (fv['v'].values[foo,:-1,1:,:-1] + fv['v'].values[foo,:-1,:-1,:-1])/2.
+ 
+    v = fv['v'][foo]
+    v = (v[:-1,1:,:-1] + v[:-1,:-1,:-1])/2.
     v = v[:izmax+1,iymin:iymax+1,ixmin:ixmax+1].T
     
     fv.close()
-    
-    w = (fw['w'].values[foo,1:,:-1,:-1] + fw['w'].values[foo,:-1,:-1,:-1])/2.
-    
+  
+    w = fw['w'][foo]
+    w = (w[1:,:-1,:-1] + w[:-1,:-1,:-1])/2.
     w = w[:izmax+1,iymin:iymax+1,ixmin:ixmax+1].T
     
     fw.close()
@@ -880,13 +882,13 @@ def get_MicroHH_data(x,y,z,lidarx,lidary,lidarz,model_time, u_file,v_file,w_file
     
     for j in range(2):
         u = interp1d(q[j],u,axis=j,bounds_error=False)(qi[j])
-        u = np.delete(u,np.where(np.isnan(u))[j],axis=j)
         idx = np.delete(idx,np.where(np.isnan(u))[j],axis=j)
-    
+        u = np.delete(u,np.where(np.isnan(u))[j],axis=j)
+
     foo = np.where(idx != 0)
-          
+
     u = u[foo[0],foo[1],:]
-    
+
     for j in range(2):
         v = interp1d(q[j],v,axis=j,bounds_error=False)(qi[j])
         v = np.delete(v,np.where(np.isnan(v))[j],axis=j)
@@ -895,14 +897,13 @@ def get_MicroHH_data(x,y,z,lidarx,lidary,lidarz,model_time, u_file,v_file,w_file
     
     for j in range(2):
         w = interp1d(q[j],w,axis=j,bounds_error=False)(qi[j])
-        w = np.delete(w,np.where(np.isnan(w)),axis=j)
+        w = np.delete(w,np.where(np.isnan(w))[j],axis=j)
     
     w = w[foo[0],foo[1],:]
     
-    
     for j in range(2):
         zzz = interp1d(q[j],zzz,axis=j,bounds_error=False)(qi[j])
-        zzz = np.delete(zzz,np.where(np.isnan(zzz)),axis=j)
+        zzz = np.delete(zzz,np.where(np.isnan(zzz))[j],axis=j)
     
     zzz = zzz[foo[0],foo[1],:]
     
@@ -1704,7 +1705,7 @@ for i in range(len(model_time)):
             bar = np.arange(len(foo)) 
     else:
         bar = np.where(foo >= sim_obs_begin)[0]
-        
+
     # If the are rays to be simulated, we perform them
     if len(foo[bar]) > 0:
         print("Starting Simulations for " + str(model_time[i]))
@@ -1776,5 +1777,6 @@ for i in range(len(model_time)):
             else:
                 # Stop writing
                 keep_writing = False
+
             
         
