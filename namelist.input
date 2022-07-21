@@ -6,11 +6,11 @@
 # to run (e.g., model type).
 #
 # Model information
-model                    = 4       # 1-WRF, 2-FastEddy, 3-NCAR LES, 4-MicroHH
-model_frequency          = 1800     # Frequency of model output used for lidar simulation in seconds
-model_dir                = /Users/joshua.gebauer/MicroHH_Test/    # Directory with the model output
+model                    = 5       # 1-WRF, 2-FastEddy, 3-NCAR LES, 4-MicroHH, 5-CM1
+model_frequency          = 300     # Frequency of model output used for lidar simulation in seconds
+model_dir                = /Users/joshua.gebauer/cm1_data/    # Directory with the model output
 model_timestep           = 0.025   # Model time step (needed for FE output)
-model_prefix             = None  # Prefix for the model data filenames
+model_prefix             = cm1out  # Prefix for the model data filenames
 coordinate_type          = 2      # 1-Lat/lon, 2-x,y,z
 use_calendar             = 0      # If 1 then the start and end times are defined by calendar. If 0 they are in model integration time
 start_year               = 2019   # Ignored if use_calendar is 0
@@ -25,14 +25,20 @@ end_day                  = 4     # Ignored if use_calendar is 0
 end_hour                 = 21      # Ignored if use_calendar is 0
 end_min                  = 44      # Ignored if use_calendar is 0
 end sec                  = 0      # Ignored if use_calendar is 0
-start_time               = 0      # Start time of the lidar simulation in seconds (Ignored if use_calendar is 1)
-end_time                 = 21600      # End time of the lidar simulation in seconds (Ignored if use_calendar is 1)
+start_time               = 600      # Start time of the lidar simulation in seconds (Ignored if use_calendar is 1)
+end_time                 = 7800     # End time of the lidar simulation in seconds (Ignored if use_calendar is 1)
 ncar_les_nscl            = 21     # Number of scalars in NCAR LES run.
 clouds                   = 1      # Extinguish the beam due to clouds
+turb                     = 1      # Add subgrid turbulence
 #
+# Signal simulation information
+sim_signal               = 1      # Simulate lidar signal loss based on signal climatology
+signal_climo_file        = /Users/joshua.gebauer/Lidar_Signal_Climos/PERiLs_C1.nc
+points_per_gate          = 20     # Number of lidar samples per range gate
+num_pulses               = 10000   # Number of pulses per gate
 #
 # Output file information
-outfile                  = MicroHH_Test.nc
+outfile                  = CM1_550000_250000.nc
 append                   = 0      # 1- Append data to existing lidar simulation output file, 0-Create new file
 clobber                  = 1      # 1-Clobber existing file, 0-End simulation if output file exists
 #
@@ -68,18 +74,19 @@ motor_az_speed           = 36     # In degrees/sec (ignored if instantaneous)
 motor_el_speed           = 36     # In degrees/sec (ignored if instantaneous)
 pulse_width              = 150    # in ns
 gate_width               = 200    # in ns
-maximum_range            = 2.5      # in km
+maximum_range            = 4      # in km
 dbs_start_height         = 40     # Start height in m AGL for a DBS scan
 dbs_end_height           = 480    # Start height in m AGL for a DBS scan
 dbs_spacing              = 20     # Vertical spacing of DBS points
 sample_resolution        = 5     # This is the resolution in which the model is sampled along the lidar beam 
 nyquist_velocity         = 19.4   # in m/s
 ray_time                 = 1      # Time it takes to collect a ray in seconds
+
 #
 #
 # Lidar position information
 lidar_lat                = 35.3   # latitude of simulated lidar in degrees (ignored if coordinate_type is 2)
 lidar_lon                = -98.0  # longitude of simulated lidar in degrees (ignored if coordinate_type is 2)
-lidar_x                  = 2000   # x position of simulated lidar in default units of model (ignored if coordinate_type is 1)
-lidar_y                  = 2000   # y position of simulated lidar in default units of model (ignored if coordinate_type is 1)
+lidar_x                  = 550000   # x position of simulated lidar in default units of model (ignored if coordinate_type is 1)
+lidar_y                  = 250000   # y position of simulated lidar in default units of model (ignored if coordinate_type is 1)
 lidar_alt                = 0    # height of the simulated lidar (m above sea level)

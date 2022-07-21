@@ -27,7 +27,7 @@ def read_namelist(filename):
     namelist = ({'success':0,
                  'model':0,                 # Type of model used for the simulation. 1-WRF, 2-FastEddy, 3-NCAR LES
                  'model_frequency':0.0 ,       # Frequency of model output used for lidar simulation in seconds
-                 'model_timestep':0.025,    # Model time step (needed for FE output)
+                 'model_timestep':0.025,    # Model time step (needed for FE and CM1)
                  'model_dir':'None',        # Directory with the model data
                  'model_prefix':'None',     # Prefix for the model data files
                  'outfile':'None',
@@ -69,7 +69,7 @@ def read_namelist(filename):
                  'dbs_start_height':40,       # Start height of DBS scan
                  'dbs_end_height':480,        # End height of DBS scans
                  'dbs_spacing':20,            # Vertical spacing of dbs points
-                 'sample_resolution':10,      # sample resolution of the model along the lidar beam in m.
+                 'sample_resolution':10.,      # sample resolution of the model along the lidar beam in m.
                  'nyquist_velocity':19.4,    # Nyquist velocity of the lidar
                  'coordinate_type':1,        # 1-Lat/Lon, 2-x,y,z
                  'lidar_lat':35.3,           # latitude of simulated lidar in degrees (ignored if coordinate_type is 2)
@@ -92,8 +92,13 @@ def read_namelist(filename):
                  'end_sec':0,           # Ignored if use_calendar is 0
                  'start_time':0.0,              # Start time of the lidar simulation (Ignored if used calendar is 1)
                  'end_time':86400.0,            # End time of the lidar simulation
-                 'ncar_les_nscl':21,
-                 'clouds':0}             
+                 'ncar_les_nscl':21,    # Number of scalars in NCAR LES output
+                 'clouds':0,            # Extinguish beam for clouds (Only works with WRF and CM1)  
+                 'turb':0,              # Add variance to the radial velocities along beam from subgrid turbulence (Only works with CM1)
+                 'sim_signal':0,        # Simulate lidar signal loss based on signal climatology
+                 'signal_climo_file':'None', # Path to the lidar signal climotology file
+                 'points_per_gate':20,  # Number of lidar samples per range gate
+                 'num_pulses':10000}    # Number of pulses per gate 
                  )
     
     # Read in the file all at once
@@ -390,18 +395,71 @@ def get_scan_timing(scans, start_time, end_time, model_time, cced, repeats, star
     return az_el_coords, scan_key, model_time_key, lidar_time, scan_schedule
 
 
+###############################################################################
+# This function uses a signal climatology file to make more "realistic" signal
+# loss for the simulated lidar data.
+###############################################################################
+
+def signal_sim(ray, file, r, nyquist_velocity, points_per_gate, num_pulse):
+    
+    vr = np.copy(ray)
+    f = Dataset(file,'r')
+    
+    climo_snr = f.variables['snr'][:]
+    good = f.variables['fraction_good'][:]
+    climo_r = f.variables['ranges'][:]
+    
+    # Interpolate the climo signal to the ranges of the simulated lidar data
+    
+    climo_snr = np.interp(r, climo_r, climo_snr)
+    good = np.interp(r, climo_r, good)
+    # Generate a random float between 0 and 1. If the number is greater than
+    # "good" then replace that value with one from a beta distribution
+    
+    
+    rng = np.random.default_rng()
+    random = rng.random(len(r))
+    beta = rng.beta(0.5,0.5,len(r))
+    beta = (beta*(2*nyquist_velocity)) - nyquist_velocity
+    
+    # Replace any nans in the dataset with junk values
+    foo = np.where(np.isnan(vr))
+    vr[foo] = beta[foo]
+    
+    # Now do signal climo
+    foo = np.where(random > good)
+    vr[foo] = beta[foo]
+    
+    # Calculate the observation error variance for each range gate based on 
+    # Eq. 7 from O'Conner (2010)
+    alpha = ((10**(climo_snr/10.)) * 2*nyquist_velocity)/(2*np.sqrt(2*np.pi))
+    obs_var = (((4*np.sqrt(8))/(alpha*(10**(climo_snr/10.))*points_per_gate*num_pulse))*
+               ((1 + (alpha/np.sqrt(2*np.pi)))**2))
+    
+    # Now add Gaussian perturbations to the Vr depending on the SNR values for
+    # "good" points
+    foo = np.where(random <= good)
+    normal = rng.normal(0,np.sqrt(obs_var))
+    vr[foo] += normal[foo]
+    
+    # Now check to make sure none of the data is past the nyquist velocity
+    vr = np.where(vr >= -1*nyquist_velocity, vr, -1*nyquist_velocity)
+    vr = np.where(vr <= nyquist_velocity, vr, nyquist_velocity)
+    
+    return vr
+
 ##############################################################################
 # Get the data you need from a WRF run
 ##############################################################################
 
 def get_wrf_data(x,y,z,lidarx,lidary,lidarz,file,cloud,xx,yy,transform):
     
-    f = xr.open_dataset(file)
-    
+    f = Dataset(file)
+
     if xx is None:
-        xx, yy = np.meshgrid(np.arange(f.dims['west_east']) * f.DX, np.arange(f.dims['south_north']) * f.DY)
+        xx, yy = np.meshgrid(np.arange(f.dimensions['west_east'].size) * f.DX, np.arange(f.dimensions['south_north'].size) * f.DY)
     
-    zz = (f['PH'].values[0] + f['PHB'].values[0])/9.81
+    zz = (f['PH'][0] + f['PHB'][0])/9.81
     zz = (zz[1:] + zz[:-1])/2.
     
     zz = zz.T
@@ -416,7 +474,7 @@ def get_wrf_data(x,y,z,lidarx,lidary,lidarz,file,cloud,xx,yy,transform):
     # First chunk the data for the region we need
     
     if np.max(x) > np.max(xx[:,0]):
-        ixmax = f.dims['west_east']-1
+        ixmax = f.dimensions['west_east'].size-1
         if np.min(x) < np.min(xx[:,0]):
             ixmin = 0
         else:
@@ -429,7 +487,7 @@ def get_wrf_data(x,y,z,lidarx,lidary,lidarz,file,cloud,xx,yy,transform):
     
     
     if np.max(y) > np.max(yy[0]):
-        iymax = f.dims['south_north']-1
+        iymax = f.dimensions['south_north'].size-1
         if np.min(y) < np.min(yy[0]):
             iymin = 0
         else:
@@ -445,19 +503,19 @@ def get_wrf_data(x,y,z,lidarx,lidary,lidarz,file,cloud,xx,yy,transform):
     else:
         izmax = np.where(np.max(z) < np.min(np.min(zz,axis=0),axis=0))[0][0]
         
-    u = (f['U'].values[0,:,:,1:] + f['U'].values[0,:,:,:-1])/2.
+    u = (f['U'][0,:,:,1:] + f['U'][0,:,:,:-1])/2.
     u = u[:izmax+1,iymin:iymax+1,ixmin:ixmax+1].T
     
-    v = (f['V'].values[0,:,1:,:] + f['V'].values[0,:,:-1,:])/2.
+    v = (f['V'][0,:,1:,:] + f['V'][0,:,:-1,:])/2.
     v = v[:izmax+1,iymin:iymax+1,ixmin:ixmax+1].T
     
     if transform is not None:
-        sinalpha = f.SINALPHA.values[0,iymin:iymax+1,ixmin:ixmax+1].T
-        cosalpha = f.COSALPHA.values[0,iymin:iymax+1,ixmin:ixmax+1].T
+        sinalpha = f['SINALPHA'][0,iymin:iymax+1,ixmin:ixmax+1].T
+        cosalpha = f['COSALPHA'][0,iymin:iymax+1,ixmin:ixmax+1].T
         u = u*cosalpha[:,:,None] - v*sinalpha[:,:,None]
         v = v*cosalpha[:,:,None] + u*sinalpha[:,:,None]
         
-    w = (f['W'].values[0,1:,:,:] + f['W'].values[0,:-1,:,:])/2.
+    w = (f.variables['W'][0,1:,:,:] + f.variables['W'][0,:-1,:,:])/2.
     w = w[:izmax+1,iymin:iymax+1,ixmin:ixmax+1].T
     
     
@@ -500,8 +558,8 @@ def get_wrf_data(x,y,z,lidarx,lidary,lidarz,file,cloud,xx,yy,transform):
     zzz = zzz[foo[0],foo[1],:]
     
     if cloud == 1:
-        qtotal  = (f['QCLOUD'].values[0,:izmax+1,iymin:iymax+1,ixmin:ixmax+1].T +
-                   f['QRAIN'].values[0,:izmax+1,iymin:iymax+1,ixmin:ixmax+1].T)
+        qtotal  = (f['QCLOUD'][0,:izmax+1,iymin:iymax+1,ixmin:ixmax+1].T +
+                   f['QRAIN'][0,:izmax+1,iymin:iymax+1,ixmin:ixmax+1].T)
         
         for j in range(2):
             qtotal = interp1d(q[j],qtotal,axis=j,bounds_error=False)(qi[j])
@@ -924,7 +982,188 @@ def get_MicroHH_data(x,y,z,lidarx,lidary,lidarz,model_time, u_file,v_file,w_file
 
     return np.array(vr)
     
+##############################################################################
+# Get the data you need from a CM1 simulation
+##############################################################################
+
+def get_cm1_data(x,y,z,lidarx,lidary,lidarz,file,cloud,turb,az=None,el=None):
     
+    if (turb == 1) and ((az is None) or (el is None)):
+        raise Exception('The azimuth and elevation need to be passed to function if subgrid turbulence is to be used')
+        
+    f = Dataset(file,'r')
+    
+    zz = f['zh'][:]*1000.
+    xx = f['xh'][:]*1000.
+    yy = f['yh'][:]*1000.
+    
+    zz = zz.T
+    xx = xx.T
+    yy = yy.T
+    
+    if np.max(x) > np.max(xx):
+        ixmax = len(xx)-1
+        if np.min(x) < np.min(xx):
+            ixmin = 0
+        else:
+            ixmin = np.where((np.min(x) > xx))[0][-1]
+    elif np.min(x) < np.min(xx):
+        ixmin = 0
+        ixmax = np.where((np.max(x) <= xx))[0][0]
+    else:
+        ixmin, ixmax = np.where((np.min(x) > xx))[0][-1], np.where((np.max(x) <= xx))[0][0]
+    
+    
+    if np.max(y) > np.max(yy):
+        iymax = len(yy)-1
+        if np.min(y) < np.min(yy):
+            iymin = 0
+        else:
+            iymin = np.where((np.min(y) > yy))[0][-1]
+    elif np.min(y) < np.min(yy):
+        iymin = 0
+        iymax = np.where((np.max(y) <= yy))[0][0]
+    else:
+        iymin, iymax = np.where((np.min(y) > yy))[0][-1], np.where((np.max(y) <= yy))[0][0]
+    
+    if np.max(z) > np.max(zz):
+        izmax = len(zz)-1
+    else:
+        izmax = np.where(np.max(z) < zz)[0][0]
+    
+    u = f['uinterp'][0,:izmax+1,iymin:iymax+1,ixmin:ixmax+1].T
+    v = f['vinterp'][0,:izmax+1,iymin:iymax+1,ixmin:ixmax+1].T
+    w = f['winterp'][0,:izmax+1,iymin:iymax+1,ixmin:ixmax+1].T
+    
+    zzz = zz[:izmax+1,None,None] * np.ones((len(yy[iymin:iymax+1]),len(xx[ixmin:ixmax+1])))[None,:,:]
+    
+    zzz = zzz.T
+    
+    qi = (x,y)
+    q = (xx[ixmin:ixmax+1],yy[iymin:iymax+1])
+    
+    # Although inefficient I am braking this up into 4 different loops because
+    # I am concerned about memory usage for a long range lidar
+    
+    idx = np.identity(len(x))*np.arange(1,len(x)+1)
+    
+    for j in range(2):
+        u = interp1d(q[j],u,axis=j,bounds_error=False)(qi[j])
+        idx = np.delete(idx,np.where(np.isnan(u))[j],axis=j)
+        u = np.delete(u,np.where(np.isnan(u))[j],axis=j)
+     
+    foo = np.where(idx != 0)
+          
+    u = u[foo[0],foo[1],:]
+    
+    for j in range(2):
+        v = interp1d(q[j],v,axis=j,bounds_error=False)(qi[j])
+        v = np.delete(v,np.where(np.isnan(v))[j],axis=j)
+    
+    v = v[foo[0],foo[1],:]
+    
+    for j in range(2):
+        w = interp1d(q[j],w,axis=j,bounds_error=False)(qi[j])
+        w = np.delete(w,np.where(np.isnan(w))[j],axis=j)
+    
+    w = w[foo[0],foo[1],:]
+    
+    for j in range(2):
+        zzz = interp1d(q[j],zzz,axis=j,bounds_error=False)(qi[j])
+        zzz = np.delete(zzz,np.where(np.isnan(zzz))[j],axis=j)
+    
+    zzz = zzz[foo[0],foo[1],:]
+    
+    if cloud == 1:
+        qtotal  = (f['qc'][0,:izmax+1,iymin:iymax+1,ixmin:ixmax+1].T +
+                   f['qi'][0,:izmax+1,iymin:iymax+1,ixmin:ixmax+1].T +
+                   f['qr'][0,:izmax+1,iymin:iymax+1,ixmin:ixmax+1].T)
+        
+        for j in range(2):
+            qtotal = interp1d(q[j],qtotal,axis=j,bounds_error=False)(qi[j])
+            qtotal = np.delete(qtotal,np.where(np.isnan(qtotal))[j],axis=j)
+        
+        qtotal = qtotal[foo[0],foo[1],:]
+    
+    if turb == 1:
+         # Calculate the vr variance before interpolation
+         vr_var = (f['uu'][0,ixmin:ixmax+1,iymin:iymax+1,:izmax+1]*
+                   (np.cos(np.deg2rad(el))**2)*(np.sin(np.deg2rad(az))**2))
+         
+         vr_var = vr_var + (f['vv'][0,ixmin:ixmax+1,iymin:iymax+1,:izmax+1]*
+                            (np.cos(np.deg2rad(el))**2)*(np.cos(np.deg2rad(az))**2))
+         
+         
+         vr_var = vr_var + (f['ww'][0,ixmin:ixmax+1,iymin:iymax+1,:izmax+1]*
+                            (np.sin(np.deg2rad(el))**2))
+         
+         # Trash is just a temp variable
+         trash = 0.5*(f['uv'][0,:,:,1:] + f['uv'][0,:,:,:-1])
+         trash = 0.5*(trash[:,1:,:] + trash[:,:-1,:])
+         
+         vr_var = vr_var + (trash[ixmin:ixmax+1,iymin:iymax+1,:izmax+1]*
+                            (np.cos(np.deg2rad(el))**2)*np.cos(np.deg2rad(az))*np.sin(np.deg2rad(az)))
+         
+         
+         trash = 0.5*(f['uw'][0,:,:,1:] + f['uw'][0,:,:,:-1])
+         trash = 0.5*(trash[1:,:,:] + trash[:-1,:,:])
+         
+         vr_var = vr_var + (trash[ixmin:ixmax+1,iymin:iymax+1,:izmax+1]*
+                            np.cos(np.deg2rad(el))*np.sin(np.deg2rad(el))*np.sin(np.deg2rad(az)))
+         
+
+         trash = 0.5*(f['vw'][0,:,1:,:] + f['vw'][0,:,:-1,:])
+         trash = 0.5*(trash[1:,:,:] + trash[:-1,:,:])
+         
+         vr_var = vr_var + (trash[ixmin:ixmax+1,iymin:iymax+1,:izmax+1]*
+                            np.cos(np.deg2rad(el))*np.sin(np.deg2rad(el))*np.cos(np.deg2rad(az)))
+         
+         trash = 0
+         
+         for j in range(2):
+             vr_var = interp1d(q[j],vr_var,axis=j,bounds_error=False)(qi[j])
+             vr_var = np.delete(vr_var,np.where(np.isnan(vr_var))[j],axis=j)
+         
+         vr_var = vr_var[foo[0],foo[1],:]
+         vr_var[vr_var < 0] = 0
+         
+    f.close()
+    
+    idx = (idx[foo] - 1).astype(int)
+
+    vr = []
+    if turb == 1:
+        rng = np.random.default_rng()
+        
+    cloud_free = True
+    for i in range(len(x)):
+        foo = np.where(i == idx)[0]
+        
+        if len(foo) == 0:
+            vr.append(np.nan)
+        else:
+            if cloud == 1:
+                temp_q = np.interp(z[i],zzz[foo[0]],qtotal[foo[0]],left=np.nan,right=np.nan)
+                if temp_q > 0.00001:
+                    print('Cloud at ' + str(z[i]) + ' qvalue: ' + str(temp_q))
+                    cloud_free = False
+                
+            if cloud_free:
+                temp_u = np.interp(z[i],zzz[foo[0]],u[foo[0]],left=np.nan,right=np.nan)
+                temp_v = np.interp(z[i],zzz[foo[0]],v[foo[0]],left=np.nan,right=np.nan)
+                temp_w = np.interp(z[i],zzz[foo[0]],w[foo[0]],left=np.nan,right=np.nan)
+        
+                vr.append(((x[i]-lidarx)*temp_u + (y[i]-lidary)*temp_v + (z[i]-lidarz)*temp_w)/np.sqrt((x[i]-lidarx)**2 + (y[i]-lidary)**2 + (z[i]-lidarz)**2))
+                
+                if turb == 1:
+                    temp_vr_var = np.interp(z[i],zzz[foo[0]],vr_var[foo[0]],left=np.nan,right=np.nan)
+                    
+                    vr[-1] = vr[-1] + rng.normal(0,np.sqrt(temp_vr_var))
+                    
+            else:
+                vr.append(np.nan)
+
+    return np.array(vr)    
 ##############################################################################
 # This function samples model data to the specified range gates assuming a 
 # gaussian pusle power
@@ -1006,12 +1245,13 @@ def gaussian_pulse(vr,pulse_width,gate_width,maximum_range,nyquist_velocity,cut_
 
 def sim_observations(lidar_x, lidar_y, lidar_z, pulse_width, gate_width, sample_resolution, maximum_range,
                      nyquist_velocity, coords, model_type, model_time, model_step, files, instantaneous_scan,
-                     prefix, model_frequency, nscl, clouds, scan_key, namelist, xx = None, yy = None, transform = None):
+                     prefix, model_frequency, nscl, clouds, scan_key,
+                     sim_signal, signal_file, namelist, xx = None, yy = None, transform = None):
     
     if 3e8*gate_width*1e-9/2.0 < sample_resolution:
         r = np.arange(1,maximum_range*1000,3e8*gate_width*1e-9/2.0)
     else:
-        r = np.arange(1,maximum_range*1000,sample_resolution)
+        r = np.arange(sample_resolution,maximum_range*1000+sample_resolution,sample_resolution)
     
     # Find the maximum and minimum range needed for full gate sample
     c =3e8
@@ -1038,6 +1278,7 @@ def sim_observations(lidar_x, lidar_y, lidar_z, pulse_width, gate_width, sample_
             z = r*np.sin(np.radians(coords[j][1])) + lidar_z
             key = scan_key[j]
             elev = coords[j][1]
+            azim = coords[j][0]
             
         else:
             x = r*np.cos(np.radians(coords[0][j,1]))*np.sin(np.radians(coords[0][j,0])) + lidar_x
@@ -1045,6 +1286,7 @@ def sim_observations(lidar_x, lidar_y, lidar_z, pulse_width, gate_width, sample_
             z = r*np.sin(np.radians(coords[0][j,1])) + lidar_z
             key = scan_key[0][j]
             elev = coords[0][j,1]
+            azim = coords[0][j,0]
         
         if model_type == 1:
             #try:
@@ -1079,15 +1321,40 @@ def sim_observations(lidar_x, lidar_y, lidar_z, pulse_width, gate_width, sample_
             w_file = files[foo]
             
             temp = get_MicroHH_data(x,y,z,lidar_x,lidar_y,lidar_z,model_time, u_file, v_file, w_file)
+        
+        elif model_type == 5:
+            print(model_time, model_frequency)
+            # Come back to this as it can be done better
+            if int(model_time/model_frequency) < 10:
+                foo = np.where(np.array(files) == prefix + '_00000' + str(int(model_time/model_frequency))+'.nc')[0][0]
+            elif int(model_time/model_frequency) < 100:
+                foo = np.where(np.array(files) == prefix + '_0000' + str(int(model_time/model_frequency))+'.nc')[0][0]
+            elif int(model_time/model_frequency) < 1000:
+                foo = np.where(np.array(files) == prefix + '_000' + str(int(model_time/model_frequency))+'.nc')[0][0]
+            elif int(model_time/model_frequency) < 10000:
+                foo = np.where(np.array(files) == prefix + '_00' + str(int(model_time/model_frequency))+'.nc')[0][0]
+            elif int(model_time/model_frequency) < 100000:
+                foo = np.where(np.array(files) == prefix + '_0' + str(int(model_time/model_frequency))+'.nc')[0][0]
+            else:
+                foo = np.where(np.array(files) == prefix + '_' + str(int(model_time/model_frequency))+'.nc')[0][0]
+            
+            temp = get_cm1_data(x,y,z,lidar_x,lidar_y,lidar_z,files[foo],clouds,namelist['turb'],az=azim,el=elev)
             
         else:
             print('ERROR: Unknown model type specified')
             return [-999]
         
         # Now we get the vr that the lidar would observe assuming a gaussian pulse
-        sim_obs.append(gaussian_pulse(temp,pulse_width,gate_width,maximum_range,nyquist_velocity,cut_off,r,
-                                      key,elev,namelist))
-           
+        temp = gaussian_pulse(temp,pulse_width,gate_width,maximum_range,nyquist_velocity,cut_off,r,
+                                      key,elev,namelist)
+        
+        if sim_signal == 1:
+            temp = signal_sim(temp, signal_file, np.arange(3e8*gate_width*1e-9/4.0,maximum_range*1000+1,3e8*gate_width*1e-9/2.0),
+                              nyquist_velocity, namelist['points_per_gate'], namelist['num_pulses'])
+            
+            
+            
+        sim_obs.append(temp)
     return sim_obs
 
 ##############################################################################
@@ -1713,7 +1980,9 @@ for i in range(len(model_time)):
                             namelist['gate_width'], namelist['sample_resolution'], namelist['maximum_range'], namelist['nyquist_velocity'],
                             [az_el_coords[x] for x in foo[bar]],namelist['model'],model_time[i],namelist['model_timestep'],files, namelist['instantaneous_scan'],
                             dname,namelist['model_frequency'],namelist['ncar_les_nscl'],
-                            namelist['clouds'],[scan_key[x] for x in foo[bar]],namelist, xx, yy, transformer)
+                            namelist['clouds'],[scan_key[x] for x in foo[bar]],
+                            namelist['sim_signal'],namelist['signal_climo_file'],
+                            namelist, xx, yy, transformer)
     
     # If not we move on to the next iteration since no new data  nothing will need
     # to be written to the file
@@ -1777,6 +2046,4 @@ for i in range(len(model_time)):
             else:
                 # Stop writing
                 keep_writing = False
-
-            
-        
+                
