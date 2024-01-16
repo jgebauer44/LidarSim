@@ -62,7 +62,7 @@ def read_namelist(filename):
                  'scan3_el_speed':0,          # Elevation speed for scan 3, same as above
                  'scan4_az_speed':0,          # Azimuth speed for scan 4, same as above
                  'scan4_el_speed':0,          # Elevation speed for scan 4, same as above
-                 'ray_time':1,                # Ray accumulation time in seconds
+                 'ray_time':1.0,                # Ray accumulation time in seconds
                  'pulse_width':150.0,         # length of pulse in ns
                  'gate_width':200.0,          # length of range gates in ns
                  'maximum_range':5.0,         # maximum range of the lidar in km
@@ -471,6 +471,15 @@ def get_wrf_data(x,y,z,lidarx,lidary,lidarz,file,cloud,xx,yy,transform):
     # a tensor-product interpolation. This generates extra data (i.e more memory intensive),
     # but is significantly faster
     
+    # First check if max x is less than the minimum of the grid or if min x is greater than max x
+    # and if so just return a bunch of nans because the beam is never in the domain
+    if (np.max(x) < np.min(xx[:,0])) or (np.min(x) > np.max(xx[:,0])):
+        return np.ones(len(x))*np.nan
+    
+    # Do the same thing for y
+    if (np.max(y) < np.min(yy[0])) or (np.min(y) > np.max(yy[0])):
+        return np.ones(len(x))*np.nan
+    
     # First chunk the data for the region we need
     
     if np.max(x) > np.max(xx[:,0]):
@@ -512,9 +521,11 @@ def get_wrf_data(x,y,z,lidarx,lidary,lidarz,file,cloud,xx,yy,transform):
     if transform is not None:
         sinalpha = f['SINALPHA'][0,iymin:iymax+1,ixmin:ixmax+1].T
         cosalpha = f['COSALPHA'][0,iymin:iymax+1,ixmin:ixmax+1].T
-        u = u*cosalpha[:,:,None] - v*sinalpha[:,:,None]
-        v = v*cosalpha[:,:,None] + u*sinalpha[:,:,None]
-        
+        u_tmp = u*cosalpha[:,:,None] - v*sinalpha[:,:,None]
+        v_tmp = v*cosalpha[:,:,None] + u*sinalpha[:,:,None]
+        u = np.copy(u_tmp)
+        v = np.copy(v_tmp)
+
     w = (f.variables['W'][0,1:,:,:] + f.variables['W'][0,:-1,:,:])/2.
     w = w[:izmax+1,iymin:iymax+1,ixmin:ixmax+1].T
     
@@ -580,7 +591,7 @@ def get_wrf_data(x,y,z,lidarx,lidary,lidarz,file,cloud,xx,yy,transform):
         else:
             if cloud == 1:
                 temp_q = np.interp(z[i],zzz[foo[0]],qtotal[foo[0]],left=np.nan,right=np.nan)
-                if temp_q > 0:
+                if temp_q > 0.00001:
                     cloudfree = False
                     
             if cloudfree:
@@ -609,6 +620,15 @@ def get_fasteddy_data(x,y,z,lidarx,lidary,lidarz,file):
     zz = zz.T
     xx = xx.T
     yy = yy.T
+    
+    # First check if max x is less than the minimum of the grid or if min x is greater than max x
+    # and if so just return a bunch of nans because the beam is never in the domain
+    if (np.max(x) < np.min(xx[:,0])) or (np.min(x) > np.max(xx[:,0])):
+        return np.ones(len(x))*np.nan
+    
+    # Do the same thing for y
+    if (np.max(y) < np.min(yy[0])) or (np.min(y) > np.max(yy[0])):
+        return np.ones(len(x))*np.nan
     
     if np.max(x) > np.max(xx[:,0]):
         ixmax = xx.shape[0]-1
@@ -754,6 +774,15 @@ def get_ncarles_data(x,y,z,lidarx,lidary,lidarz,file,nscl):
     xx = xx.T
     yy = yy.T
     
+    # First check if max x is less than the minimum of the grid or if min x is greater than max x
+    # and if so just return a bunch of nans because the beam is never in the domain
+    if (np.max(x) < np.min(xx[:,0])) or (np.min(x) > np.max(xx[:,0])):
+        return np.ones(len(x))*np.nan
+    
+    # Do the same thing for y
+    if (np.max(y) < np.min(yy[0])) or (np.min(y) > np.max(yy[0])):
+        return np.ones(len(x))*np.nan
+    
     # Search for the indices for the the points needed to find the lidar ray
     if np.max(x) > np.max(xx[:,0]):
         ixmax = nx-1
@@ -883,6 +912,15 @@ def get_MicroHH_data(x,y,z,lidarx,lidary,lidarz,model_time, u_file,v_file,w_file
     zz = zz.T
     xx = xx.T
     yy = yy.T
+    
+    # First check if max x is less than the minimum of the grid or if min x is greater than max x
+    # and if so just return a bunch of nans because the beam is never in the domain
+    if (np.max(x) < np.min(xx[:,0])) or (np.min(x) > np.max(xx[:,0])):
+        return np.ones(len(x))*np.nan
+    
+    # Do the same thing for y
+    if (np.max(y) < np.min(yy[0])) or (np.min(y) > np.max(yy[0])):
+        return np.ones(len(x))*np.nan
     
     if np.max(x) > np.max(xx[:,0]):
         ixmax = len(xx)-1
@@ -1886,7 +1924,7 @@ sim_obs = []
 files = sorted(glob.glob(filename))
 
 if namelist['coordinate_type'] == 1:
-    f = xr.open_dataset(files[0])
+    f = xr.open_dataset(files[0], decode_times=False)
     
     # LCC projection
     if f.MAP_PROJ == 1:
