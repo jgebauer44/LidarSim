@@ -98,7 +98,9 @@ def read_namelist(filename):
                  'sim_signal':0,        # Simulate lidar signal loss based on signal climatology
                  'signal_climo_file':'None', # Path to the lidar signal climotology file
                  'points_per_gate':20,  # Number of lidar samples per range gate
-                 'num_pulses':10000}    # Number of pulses per gate 
+                 'num_pulses':10000,    # Number of pulses per gate
+                 'umove':0,             # East west grid velocity in m/s
+                 'vmove':0}             # North south grid velocity in m/s 
                  )
     
     # Read in the file all at once
@@ -1994,6 +1996,9 @@ for i in range(len(model_time)):
     
     # Timing the simulation
     t0 = time.time()
+    
+    temp_lidar_x = lidar_x_proj - i*namelist['umove']*namelist['model_frequency']
+    temp_lidar_y = lidar_y_proj - i*namelist['vmove']*namelist['model_frequency']
     
     # Find all the rays that need to be simulated from that output time
     foo = np.where(i == np.array(model_time_key))[0]
