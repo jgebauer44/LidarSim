@@ -99,8 +99,8 @@ def read_namelist(filename):
                  'signal_climo_file':'None', # Path to the lidar signal climotology file
                  'points_per_gate':20,  # Number of lidar samples per range gate
                  'num_pulses':10000,    # Number of pulses per gate
-                 'umove':0,             # East west grid velocity in m/s
-                 'vmove':0}             # North south grid velocity in m/s 
+                 'umove':0.0,             # East west grid velocity in m/s
+                 'vmove':0.0}             # North south grid velocity in m/s 
                  )
     
     # Read in the file all at once
@@ -1033,7 +1033,7 @@ def get_cm1_data(x,y,z,lidarx,lidary,lidarz,file,cloud,turb,az=None,el=None):
         
     f = Dataset(file,'r')
     
-    zz = f['zh'][:]*1000.
+    zz = f['z'][:]*1000.
     xx = f['xh'][:]*1000.
     yy = f['yh'][:]*1000.
     
