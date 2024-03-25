@@ -2019,7 +2019,7 @@ for i in range(len(model_time)):
     # If the are rays to be simulated, we perform them
     if len(foo[bar]) > 0:
         print("Starting Simulations for " + str(model_time[i]))
-        temp = sim_observations(lidar_x_proj,lidar_y_proj,namelist['lidar_alt'], namelist['pulse_width'],
+        temp = sim_observations(temp_lidar_x,temp_lidar_y,namelist['lidar_alt'], namelist['pulse_width'],
                             namelist['gate_width'], namelist['sample_resolution'], namelist['maximum_range'], namelist['nyquist_velocity'],
                             [az_el_coords[x] for x in foo[bar]],namelist['model'],model_time[i],namelist['model_timestep'],files, namelist['instantaneous_scan'],
                             dname,namelist['model_frequency'],namelist['ncar_les_nscl'],
