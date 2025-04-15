@@ -61,4 +61,4 @@ python LidarSim.py /Users/jgebauer/namelist.input --output_dir /Users/jgebauer/L
 # Contact Information
 #####################
 
-Please direct any questions or bug-fixes to Josh Gebauer at joshua.gebauer@noaa.gov
+Please direct any questions or bug-fixes to Josh Gebauer at joshua.gebauer@ou.edu
